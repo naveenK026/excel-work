@@ -12,11 +12,11 @@
 
       <section class="hero">
         <p class="eyebrow">AppsFlyer Duplicate Highlighter</p>
-        <h1>Sort and highlight duplicate AppsFlyer IDs.</h1>
+        <h1>Sort and highlight duplicate values by any column.</h1>
         <p class="intro">
-          Upload one report file and this tool will sort the data by
-          <strong>AppsFlyer ID</strong>, then highlight every row where that ID
-          appears more than once.
+          Upload one report file, choose a column name, and this tool will sort
+          the data by that column, then highlight every row where the same
+          value appears more than once.
         </p>
       </section>
 
@@ -33,20 +33,39 @@
             />
           </label>
 
+          <label class="field">
+            <span>Column Name</span>
+            <input
+              id="columnName"
+              name="columnName"
+              type="text"
+              list="columnOptions"
+              placeholder="AppsFlyer ID"
+              value="AppsFlyer ID"
+              required
+            />
+            <datalist id="columnOptions"></datalist>
+            <small id="columnHint" class="field-hint">
+              Upload a file to auto-detect headers. You can also type the
+              column name manually.
+            </small>
+          </label>
+
           <button id="highlightButton" type="submit">Highlight Duplicates</button>
         </form>
 
         <div id="highlightStatus" class="status" aria-live="polite">
-          The output file is sorted by <strong>AppsFlyer ID</strong> and saved
-          as a new highlighted workbook.
+          The output file is sorted by your selected column and saved as a new
+          highlighted workbook.
         </div>
 
         <div class="notes">
           <h2>What it does</h2>
           <ul>
-            <li>Finds the row that contains the <strong>AppsFlyer ID</strong> header.</li>
-            <li>Sorts the data below that header by AppsFlyer ID.</li>
-            <li>Highlights every row with a duplicate AppsFlyer ID.</li>
+            <li>Detects the header row from the uploaded file.</li>
+            <li>Suggests the available column names after upload.</li>
+            <li>Sorts the data below that header by your selected column.</li>
+            <li>Highlights every row with a duplicate value in that column.</li>
             <li>Downloads the result as a new <strong>.xlsx</strong> file.</li>
           </ul>
         </div>

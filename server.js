@@ -392,8 +392,59 @@ function findHeaderRowIndex(rows, targetHeader) {
   );
 }
 
+function findBestHeaderRowIndex(rows) {
+  let bestIndex = -1;
+  let bestScore = 0;
+
+  rows.slice(0, 50).forEach((row, index) => {
+    const nonEmptyValues = row
+      .map((cell) => String(cell ?? "").trim())
+      .filter((value) => value !== "");
+    const uniqueValues = new Set(nonEmptyValues.map((value) => value.toLowerCase()));
+    const score = nonEmptyValues.length + uniqueValues.size * 0.1;
+
+    if (nonEmptyValues.length >= 2 && score > bestScore) {
+      bestScore = score;
+      bestIndex = index;
+    }
+  });
+
+  return bestIndex;
+}
+
 function padRow(row, columnCount) {
   return Array.from({ length: columnCount }, (_, index) => row[index] ?? "");
+}
+
+function extractHeaderInfo(rows, preferredHeader) {
+  let headerRowIndex = -1;
+
+  if (preferredHeader) {
+    headerRowIndex = findHeaderRowIndex(rows, preferredHeader);
+  }
+
+  if (headerRowIndex === -1) {
+    headerRowIndex = findBestHeaderRowIndex(rows);
+  }
+
+  if (headerRowIndex === -1) {
+    return null;
+  }
+
+  const headerRow = rows[headerRowIndex];
+  const columnCount = Math.max(...rows.map((row) => row.length), headerRow.length, 0);
+  const paddedHeaderRow = padRow(headerRow, columnCount);
+  const columns = paddedHeaderRow
+    .map((value) => String(value ?? "").trim())
+    .filter((value) => value !== "");
+
+  return {
+    headerRowIndex,
+    headerRow,
+    columnCount,
+    paddedHeaderRow,
+    columns,
+  };
 }
 
 async function processInputFile(file, sourceType, store) {
@@ -433,6 +484,47 @@ app.get("/appsflyer-highlight", (req, res) => {
 });
 
 app.use(express.static(path.join(__dirname, "public")));
+
+app.post(
+  "/api/extract-columns",
+  upload.single("sourceFile"),
+  async (req, res) => {
+    const sourceFile = req.file;
+    const cleanupTargets = [];
+
+    try {
+      if (!sourceFile) {
+        return res.status(400).json({ error: "A source file is required." });
+      }
+
+      cleanupTargets.push(sourceFile.path);
+
+      const { rows } = await readMatrixFromFile(sourceFile);
+      const headerInfo = extractHeaderInfo(rows, "AppsFlyer ID");
+
+      if (!headerInfo) {
+        throw new Error("Could not detect a header row in the uploaded file.");
+      }
+
+      await cleanupPaths(cleanupTargets);
+
+      return res.json({
+        columns: headerInfo.columns,
+        headerRowNumber: headerInfo.headerRowIndex + 1,
+        suggestedColumn:
+          headerInfo.columns.find(
+            (column) => normalizeHeader(column) === "appsflyer id",
+          ) || headerInfo.columns[0] || "",
+      });
+    } catch (error) {
+      await cleanupPaths(cleanupTargets);
+
+      return res
+        .status(500)
+        .json({ error: error.message || "Something went wrong." });
+    }
+  },
+);
 
 app.post(
   "/api/generate",
@@ -533,23 +625,34 @@ app.post(
       cleanupTargets.push(sourceFile.path);
 
       const { rows, sheetName } = await readMatrixFromFile(sourceFile);
-      const headerRowIndex = findHeaderRowIndex(rows, "AppsFlyer ID");
+      const columnName = String(req.body.columnName || "AppsFlyer ID").trim();
+      const headerInfo = extractHeaderInfo(rows, columnName);
 
-      if (headerRowIndex === -1) {
+      if (!columnName) {
+        throw new Error("Column name is required.");
+      }
+
+      if (!headerInfo) {
         throw new Error(
-          'The file must contain a row with an "AppsFlyer ID" column header.',
+          `The file must contain a row with a "${columnName}" column header.`,
         );
       }
 
-      const headerRow = rows[headerRowIndex];
-      const columnCount = Math.max(
-        ...rows.map((row) => row.length),
-        headerRow.length,
+      const {
+        headerRowIndex,
+        columnCount,
+        paddedHeaderRow,
+      } = headerInfo;
+      const selectedColumnIndex = paddedHeaderRow.findIndex(
+        (value) => normalizeHeader(value) === normalizeHeader(columnName),
       );
-      const paddedHeaderRow = padRow(headerRow, columnCount);
-      const appsFlyerColumnIndex = paddedHeaderRow.findIndex(
-        (value) => normalizeHeader(value) === "appsflyer id",
-      );
+
+      if (selectedColumnIndex === -1) {
+        throw new Error(
+          `The file must contain a row with a "${columnName}" column header.`,
+        );
+      }
+
       const introRows = rows.slice(0, headerRowIndex).map((row) =>
         padRow(row, columnCount),
       );
@@ -566,7 +669,7 @@ app.post(
       const counts = new Map();
 
       for (const row of dataRows) {
-        const id = String(row.values[appsFlyerColumnIndex] ?? "").trim();
+        const id = String(row.values[selectedColumnIndex] ?? "").trim();
 
         if (!id) {
           continue;
@@ -582,8 +685,8 @@ app.post(
       );
 
       dataRows.sort((left, right) => {
-        const leftId = String(left.values[appsFlyerColumnIndex] ?? "").trim();
-        const rightId = String(right.values[appsFlyerColumnIndex] ?? "").trim();
+        const leftId = String(left.values[selectedColumnIndex] ?? "").trim();
+        const rightId = String(right.values[selectedColumnIndex] ?? "").trim();
 
         if (!leftId && !rightId) {
           return left.originalIndex - right.originalIndex;
@@ -622,7 +725,7 @@ app.post(
 
       for (const row of dataRows) {
         const excelRow = worksheet.addRow(row.values);
-        const id = String(row.values[appsFlyerColumnIndex] ?? "").trim();
+        const id = String(row.values[selectedColumnIndex] ?? "").trim();
 
         if (duplicateIds.has(id)) {
           excelRow.eachCell({ includeEmpty: true }, (cell) => {

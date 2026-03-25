@@ -139,6 +139,11 @@ h1 {
   font-weight: 700;
 }
 
+.field-hint {
+  color: var(--muted);
+  line-height: 1.5;
+}
+
 input,
 button {
   font: inherit;
