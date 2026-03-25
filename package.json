@@ -1,0 +1,22 @@
+{
+  "name": "mobisaturn",
+  "version": "1.0.0",
+  "description": "Campaign P360 Excel generator webapp",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "archiver": "^7.0.1",
+    "csv-parser": "^3.2.0",
+    "exceljs": "^4.4.0",
+    "express": "^5.2.1",
+    "multer": "^2.1.1",
+    "xlsx": "^0.18.5",
+    "xlsx-stream-reader": "^1.1.1"
+  }
+}
