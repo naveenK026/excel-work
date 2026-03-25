@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Campaign P360 Generator</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main class="page">
+      <a class="back-link" href="/">Back to 1.orbit</a>
+
+      <section class="hero">
+        <p class="eyebrow">Campaign P360 Generator</p>
+        <h1>Build per-campaign P360 workbooks.</h1>
+        <p class="intro">
+          Upload the Install and InApp reports, enter the app name, and this
+          tool will generate one Excel file per campaign ID inside a single ZIP.
+          It supports large <strong>XLSX</strong> and <strong>CSV</strong>
+          inputs and writes output in a streaming-friendly way.
+        </p>
+      </section>
+
+      <section class="card">
+        <form id="generator-form" class="form">
+          <label class="field">
+            <span>App Name</span>
+            <input
+              id="appName"
+              name="appName"
+              type="text"
+              placeholder="EasyPaisa"
+              required
+            />
+          </label>
+
+          <label class="field">
+            <span>Install File</span>
+            <input
+              id="installFile"
+              name="installFile"
+              type="file"
+              accept=".xlsx,.csv"
+              required
+            />
+          </label>
+
+          <label class="field">
+            <span>InApp File</span>
+            <input
+              id="inAppFile"
+              name="inAppFile"
+              type="file"
+              accept=".xlsx,.csv"
+              required
+            />
+          </label>
+
+          <button id="submitButton" type="submit">Generate ZIP</button>
+        </form>
+
+        <div id="status" class="status" aria-live="polite">
+          Output files use the format
+          <strong>AppName - CampaignNumber - p360.xlsx</strong>.
+        </div>
+
+        <div class="notes">
+          <h2>What it does</h2>
+          <ul>
+            <li>Reads the <strong>Campaign</strong> column from both files.</li>
+            <li>Extracts the last campaign number, like <strong>1216</strong>.</li>
+            <li>Creates one workbook per campaign number.</li>
+            <li>Adds <strong>PA - Install</strong> and <strong>PA - InApp</strong> sheets when data exists.</li>
+            <li>If InApp is missing a campaign, the workbook includes only <strong>PA - Install</strong>.</li>
+          </ul>
+        </div>
+      </section>
+    </main>
+
+    <script src="/campaign-p360.js"></script>
+  </body>
+  </html>

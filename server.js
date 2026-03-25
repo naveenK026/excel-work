@@ -7,6 +7,7 @@ const multer = require("multer");
 const archiver = require("archiver");
 const csvParser = require("csv-parser");
 const ExcelJS = require("exceljs");
+const XLSX = require("xlsx");
 const XlsxStreamReader = require("xlsx-stream-reader");
 
 const app = express();
@@ -348,6 +349,53 @@ async function detectFileType(file) {
   return "csv";
 }
 
+async function readMatrixFromFile(file) {
+  const fileType = await detectFileType(file);
+
+  if (fileType === "xlsx") {
+    const workbook = XLSX.readFile(file.path, { cellDates: true });
+    const firstSheetName = workbook.SheetNames[0];
+
+    if (!firstSheetName) {
+      throw new Error("File does not contain any sheet.");
+    }
+
+    return {
+      fileType,
+      sheetName: firstSheetName,
+      rows: XLSX.utils.sheet_to_json(workbook.Sheets[firstSheetName], {
+        header: 1,
+        defval: "",
+        raw: true,
+      }),
+    };
+  }
+
+  const content = await fsp.readFile(file.path, "utf8");
+  const workbook = XLSX.read(content, { raw: true, type: "string" });
+  const firstSheetName = workbook.SheetNames[0];
+
+  return {
+    fileType,
+    sheetName: firstSheetName || "Sheet1",
+    rows: XLSX.utils.sheet_to_json(workbook.Sheets[firstSheetName], {
+      header: 1,
+      defval: "",
+      raw: true,
+    }),
+  };
+}
+
+function findHeaderRowIndex(rows, targetHeader) {
+  return rows.findIndex((row) =>
+    row.some((cell) => normalizeHeader(cell) === normalizeHeader(targetHeader)),
+  );
+}
+
+function padRow(row, columnCount) {
+  return Array.from({ length: columnCount }, (_, index) => row[index] ?? "");
+}
+
 async function processInputFile(file, sourceType, store) {
   const fileType = await detectFileType(file);
 
@@ -371,6 +419,18 @@ async function cleanupPaths(paths) {
     ),
   );
 }
+
+app.get("/", (req, res) => {
+  res.sendFile(path.join(__dirname, "public", "index.html"));
+});
+
+app.get("/campaign-p360", (req, res) => {
+  res.sendFile(path.join(__dirname, "public", "campaign-p360.html"));
+});
+
+app.get("/appsflyer-highlight", (req, res) => {
+  res.sendFile(path.join(__dirname, "public", "appsflyer-highlight.html"));
+});
 
 app.use(express.static(path.join(__dirname, "public")));
 
@@ -453,6 +513,157 @@ app.post(
         res.status(500).json({ error: error.message || "Something went wrong." });
       } else {
         res.destroy(error);
+      }
+    }
+  },
+);
+
+app.post(
+  "/api/highlight-appsflyer",
+  upload.single("sourceFile"),
+  async (req, res) => {
+    const sourceFile = req.file;
+    const cleanupTargets = [];
+
+    try {
+      if (!sourceFile) {
+        return res.status(400).json({ error: "A source file is required." });
+      }
+
+      cleanupTargets.push(sourceFile.path);
+
+      const { rows, sheetName } = await readMatrixFromFile(sourceFile);
+      const headerRowIndex = findHeaderRowIndex(rows, "AppsFlyer ID");
+
+      if (headerRowIndex === -1) {
+        throw new Error(
+          'The file must contain a row with an "AppsFlyer ID" column header.',
+        );
+      }
+
+      const headerRow = rows[headerRowIndex];
+      const columnCount = Math.max(
+        ...rows.map((row) => row.length),
+        headerRow.length,
+      );
+      const paddedHeaderRow = padRow(headerRow, columnCount);
+      const appsFlyerColumnIndex = paddedHeaderRow.findIndex(
+        (value) => normalizeHeader(value) === "appsflyer id",
+      );
+      const introRows = rows.slice(0, headerRowIndex).map((row) =>
+        padRow(row, columnCount),
+      );
+      const dataRows = rows
+        .slice(headerRowIndex + 1)
+        .map((row, originalIndex) => ({
+          originalIndex,
+          values: padRow(row, columnCount),
+        }))
+        .filter((row) =>
+          row.values.some((value) => String(value ?? "").trim() !== ""),
+        );
+
+      const counts = new Map();
+
+      for (const row of dataRows) {
+        const id = String(row.values[appsFlyerColumnIndex] ?? "").trim();
+
+        if (!id) {
+          continue;
+        }
+
+        counts.set(id, (counts.get(id) || 0) + 1);
+      }
+
+      const duplicateIds = new Set(
+        Array.from(counts.entries())
+          .filter(([, count]) => count > 1)
+          .map(([id]) => id),
+      );
+
+      dataRows.sort((left, right) => {
+        const leftId = String(left.values[appsFlyerColumnIndex] ?? "").trim();
+        const rightId = String(right.values[appsFlyerColumnIndex] ?? "").trim();
+
+        if (!leftId && !rightId) {
+          return left.originalIndex - right.originalIndex;
+        }
+
+        if (!leftId) {
+          return 1;
+        }
+
+        if (!rightId) {
+          return -1;
+        }
+
+        return (
+          leftId.localeCompare(rightId, undefined, { numeric: true }) ||
+          left.originalIndex - right.originalIndex
+        );
+      });
+
+      const workbook = new ExcelJS.Workbook();
+      const worksheet = workbook.addWorksheet(sheetName || "Sheet1");
+
+      for (const row of introRows) {
+        worksheet.addRow(row);
+      }
+
+      const headerExcelRow = worksheet.addRow(paddedHeaderRow);
+      headerExcelRow.font = { bold: true };
+      headerExcelRow.eachCell((cell) => {
+        cell.fill = {
+          type: "pattern",
+          pattern: "solid",
+          fgColor: { argb: "FFF3E8D8" },
+        };
+      });
+
+      for (const row of dataRows) {
+        const excelRow = worksheet.addRow(row.values);
+        const id = String(row.values[appsFlyerColumnIndex] ?? "").trim();
+
+        if (duplicateIds.has(id)) {
+          excelRow.eachCell({ includeEmpty: true }, (cell) => {
+            cell.fill = {
+              type: "pattern",
+              pattern: "solid",
+              fgColor: { argb: "FFFDE68A" },
+            };
+          });
+        }
+      }
+
+      worksheet.autoFilter = {
+        from: { row: headerExcelRow.number, column: 1 },
+        to: { row: headerExcelRow.number, column: columnCount },
+      };
+      worksheet.views = [{ state: "frozen", ySplit: headerExcelRow.number }];
+
+      const outputDirectory = await fsp.mkdtemp(
+        path.join(os.tmpdir(), "appsflyer-highlight-"),
+      );
+      const originalBaseName =
+        path.basename(
+          sourceFile.originalname,
+          path.extname(sourceFile.originalname || ""),
+        ) || "appsflyer";
+      const outputFilename = `${originalBaseName} - highlighted.xlsx`;
+      const outputPath = path.join(outputDirectory, outputFilename);
+
+      cleanupTargets.push(outputDirectory);
+
+      await workbook.xlsx.writeFile(outputPath);
+
+      res.download(outputPath, outputFilename, async () => {
+        await cleanupPaths(cleanupTargets);
+      });
+    } catch (error) {
+      await cleanupPaths(cleanupTargets);
+
+      if (!res.headersSent) {
+        res.status(500).json({ error: error.message || "Something went wrong." });
       }
     }
   },

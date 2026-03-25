@@ -44,7 +44,10 @@ form.addEventListener("submit", async (event) => {
     link.remove();
     URL.revokeObjectURL(url);
 
-    setStatus("ZIP generated successfully. Your download should start automatically.", "success");
+    setStatus(
+      "ZIP generated successfully. Your download should start automatically.",
+      "success",
+    );
   } catch (error) {
     setStatus(error.message || "Something went wrong.", "error");
   } finally {

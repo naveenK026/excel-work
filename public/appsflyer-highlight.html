@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>AppsFlyer Duplicate Highlighter</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main class="page">
+      <a class="back-link" href="/">Back to 1.orbit</a>
+
+      <section class="hero">
+        <p class="eyebrow">AppsFlyer Duplicate Highlighter</p>
+        <h1>Sort and highlight duplicate AppsFlyer IDs.</h1>
+        <p class="intro">
+          Upload one report file and this tool will sort the data by
+          <strong>AppsFlyer ID</strong>, then highlight every row where that ID
+          appears more than once.
+        </p>
+      </section>
+
+      <section class="card">
+        <form id="highlight-form" class="form">
+          <label class="field">
+            <span>Source File</span>
+            <input
+              id="sourceFile"
+              name="sourceFile"
+              type="file"
+              accept=".xlsx,.csv"
+              required
+            />
+          </label>
+
+          <button id="highlightButton" type="submit">Highlight Duplicates</button>
+        </form>
+
+        <div id="highlightStatus" class="status" aria-live="polite">
+          The output file is sorted by <strong>AppsFlyer ID</strong> and saved
+          as a new highlighted workbook.
+        </div>
+
+        <div class="notes">
+          <h2>What it does</h2>
+          <ul>
+            <li>Finds the row that contains the <strong>AppsFlyer ID</strong> header.</li>
+            <li>Sorts the data below that header by AppsFlyer ID.</li>
+            <li>Highlights every row with a duplicate AppsFlyer ID.</li>
+            <li>Downloads the result as a new <strong>.xlsx</strong> file.</li>
+          </ul>
+        </div>
+      </section>
+    </main>
+
+    <script src="/appsflyer-highlight.js"></script>
+  </body>
+  </html>
