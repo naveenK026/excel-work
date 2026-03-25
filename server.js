@@ -464,11 +464,12 @@ if (require.main === module) {
   });
 }
 
-module.exports = {
-  app,
-  cleanupPaths,
-  createCampaignWorkbookStore,
-  extractCampaignId,
-  normalizeCellValue,
-  processInputFile,
-};
+// For serverless platforms like Vercel, export the app request handler directly.
+module.exports = app;
+
+// Attach helpers for local testing if needed.
+module.exports.cleanupPaths = cleanupPaths;
+module.exports.createCampaignWorkbookStore = createCampaignWorkbookStore;
+module.exports.extractCampaignId = extractCampaignId;
+module.exports.normalizeCellValue = normalizeCellValue;
+module.exports.processInputFile = processInputFile;
