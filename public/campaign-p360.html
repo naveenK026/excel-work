@@ -75,6 +75,59 @@
           </ul>
         </div>
       </section>
+
+      <section id="summarySection" class="card summary-card" hidden>
+        <div class="summary-header">
+          <div>
+            <p class="eyebrow">Generation Summary</p>
+            <h2>Final files and row tally</h2>
+          </div>
+          <p id="downloadNote" class="field-hint"></p>
+        </div>
+
+        <div class="summary-totals">
+          <div class="summary-stat">
+            <span>Install input rows</span>
+            <strong id="installInputTotal">0</strong>
+          </div>
+          <div class="summary-stat">
+            <span>InApp input rows</span>
+            <strong id="inAppInputTotal">0</strong>
+          </div>
+          <div class="summary-stat">
+            <span>Output install rows</span>
+            <strong id="installOutputTotal">0</strong>
+          </div>
+          <div class="summary-stat">
+            <span>Output inApp rows</span>
+            <strong id="inAppOutputTotal">0</strong>
+          </div>
+        </div>
+
+        <div class="table-wrap">
+          <table class="summary-table">
+            <thead>
+              <tr>
+                <th>Final file name</th>
+                <th>Header/1st line</th>
+                <th>PA - Install</th>
+                <th>PA - InApp</th>
+                <th>Total</th>
+              </tr>
+            </thead>
+            <tbody id="summaryTableBody"></tbody>
+            <tfoot>
+              <tr>
+                <th>Total</th>
+                <th id="headerTotalCell">0</th>
+                <th id="installTotalCell">0</th>
+                <th id="inAppTotalCell">0</th>
+                <th id="grandTotalCell">0</th>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      </section>
     </main>
 
     <script src="/campaign-p360.js"></script>

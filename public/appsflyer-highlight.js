@@ -11,6 +11,21 @@ function setHighlightStatus(message, tone = "info") {
   highlightStatus.dataset.tone = tone;
 }
 
+async function readErrorMessage(response, fallbackMessage) {
+  const text = await response.text();
+
+  if (!text) {
+    return fallbackMessage;
+  }
+
+  try {
+    const payload = JSON.parse(text);
+    return payload.error || payload.message || fallbackMessage;
+  } catch {
+    return text;
+  }
+}
+
 function populateColumnOptions(columns) {
   columnOptions.innerHTML = "";
 
@@ -43,7 +58,12 @@ async function detectColumns() {
     });
 
     if (!response.ok) {
-      throw new Error("Could not detect columns from the uploaded file.");
+      throw new Error(
+        await readErrorMessage(
+          response,
+          "Could not detect columns from the uploaded file.",
+        ),
+      );
     }
 
     const payload = await response.json();
@@ -82,14 +102,10 @@ highlightForm.addEventListener("submit", async (event) => {
     });
 
     if (!response.ok) {
-      let errorMessage = "Unable to create the highlighted file.";
-
-      try {
-        const payload = await response.json();
-        errorMessage = payload.error || errorMessage;
-      } catch (error) {
-        errorMessage = error.message || errorMessage;
-      }
+      const errorMessage = await readErrorMessage(
+        response,
+        "Unable to create the highlighted file.",
+      );
 
       throw new Error(errorMessage);
     }

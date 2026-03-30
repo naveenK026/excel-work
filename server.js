@@ -2,6 +2,7 @@ const fs = require("fs");
 const fsp = require("fs/promises");
 const os = require("os");
 const path = require("path");
+const { randomUUID } = require("crypto");
 const express = require("express");
 const multer = require("multer");
 const archiver = require("archiver");
@@ -13,13 +14,15 @@ const XlsxStreamReader = require("xlsx-stream-reader");
 const app = express();
 const port = process.env.PORT || 3000;
 const uploadDirectory = path.join(os.tmpdir(), "campaign-p360-uploads");
+const generatedDownloads = new Map();
+const downloadRetentionMs = 30 * 60 * 1000;
 
 fs.mkdirSync(uploadDirectory, { recursive: true });
 
 const upload = multer({
   dest: uploadDirectory,
   limits: {
-    fileSize: 600 * 1024 * 1024,
+    fileSize: 1536 * 1024 * 1024,
   },
 });
 
@@ -108,6 +111,8 @@ function createCampaignWorkbookStore(outputDirectory, appName) {
         workbook,
         installSheet: null,
         inAppSheet: null,
+        installCount: 0,
+        inAppCount: 0,
       });
     }
 
@@ -126,6 +131,12 @@ function createCampaignWorkbookStore(outputDirectory, appName) {
     }
 
     entry[sheetKey].addRow(rowValues).commit();
+
+    if (isInstall) {
+      entry.installCount += 1;
+    } else {
+      entry.inAppCount += 1;
+    }
   }
 
   async function finalize() {
@@ -155,10 +166,11 @@ function createCampaignWorkbookStore(outputDirectory, appName) {
 }
 
 async function processCsvFile(filePath, sourceType, store) {
-  await new Promise((resolve, reject) => {
+  return new Promise((resolve, reject) => {
     let headers = null;
     let campaignIndex = -1;
     let isSettled = false;
+    let dataRowCount = 0;
 
     function fail(error) {
       if (!isSettled) {
@@ -201,6 +213,7 @@ async function processCsvFile(filePath, sourceType, store) {
       }
 
       store.appendRow(campaignId, sourceType, headers, rowValues);
+      dataRowCount += 1;
     });
 
     parser.on("end", () => {
@@ -215,7 +228,7 @@ async function processCsvFile(filePath, sourceType, store) {
 
       if (!isSettled) {
         isSettled = true;
-        resolve();
+        resolve({ dataRowCount });
       }
     });
 
@@ -226,9 +239,10 @@ async function processCsvFile(filePath, sourceType, store) {
 }
 
 async function processXlsxFile(filePath, sourceType, store) {
-  await new Promise((resolve, reject) => {
+  return new Promise((resolve, reject) => {
     let isSettled = false;
     let sawWorksheet = false;
+    let dataRowCount = 0;
 
     function fail(error) {
       if (!isSettled) {
@@ -284,6 +298,7 @@ async function processXlsxFile(filePath, sourceType, store) {
         }
 
         store.appendRow(campaignId, sourceType, headers, rowValues);
+        dataRowCount += 1;
       });
 
       worksheetReader.on("end", () => {
@@ -309,7 +324,7 @@ async function processXlsxFile(filePath, sourceType, store) {
 
       if (!isSettled) {
         isSettled = true;
-        resolve();
+        resolve({ dataRowCount });
       }
     });
 
@@ -451,16 +466,71 @@ async function processInputFile(file, sourceType, store) {
   const fileType = await detectFileType(file);
 
   if (fileType === "csv") {
-    await processCsvFile(file.path, sourceType, store);
-    return;
+    return processCsvFile(file.path, sourceType, store);
   }
 
   if (fileType === "xlsx") {
-    await processXlsxFile(file.path, sourceType, store);
-    return;
+    return processXlsxFile(file.path, sourceType, store);
   }
 
   throw new Error("Only .xlsx and .csv files are supported.");
+}
+
+async function createZipFile(zipPath, files) {
+  await new Promise((resolve, reject) => {
+    const output = fs.createWriteStream(zipPath);
+    const archive = archiver("zip", { zlib: { level: 0 } });
+
+    output.on("close", resolve);
+    output.on("error", reject);
+    archive.on("error", reject);
+    archive.pipe(output);
+
+    for (const file of files) {
+      archive.file(file.fullPath, { name: file.filename });
+    }
+
+    archive.finalize();
+  });
+}
+
+function registerGeneratedDownload(zipPath, cleanupTargets, filename) {
+  const token = randomUUID();
+  const timeout = setTimeout(async () => {
+    const download = generatedDownloads.get(token);
+
+    if (!download) {
+      return;
+    }
+
+    generatedDownloads.delete(token);
+    await cleanupPaths(download.cleanupTargets);
+  }, downloadRetentionMs);
+
+  if (typeof timeout.unref === "function") {
+    timeout.unref();
+  }
+
+  generatedDownloads.set(token, {
+    zipPath,
+    cleanupTargets,
+    filename,
+    timeout,
+  });
+
+  return token;
+}
+
+async function cleanupGeneratedDownload(token) {
+  const download = generatedDownloads.get(token);
+
+  if (!download) {
+    return;
+  }
+
+  clearTimeout(download.timeout);
+  generatedDownloads.delete(token);
+  await cleanupPaths(download.cleanupTargets);
 }
 
 async function cleanupPaths(paths) {
@@ -481,6 +551,23 @@ app.get("/campaign-p360", (req, res) => {
 
 app.get("/appsflyer-highlight", (req, res) => {
   res.sendFile(path.join(__dirname, "public", "appsflyer-highlight.html"));
+});
+
+app.get("/api/download/:token", async (req, res) => {
+  const { token } = req.params;
+  const download = generatedDownloads.get(token);
+
+  if (!download) {
+    return res.status(404).json({
+      error: "Download expired. Please generate the ZIP again.",
+    });
+  }
+
+  clearTimeout(download.timeout);
+
+  return res.download(download.zipPath, download.filename, async () => {
+    await cleanupGeneratedDownload(token);
+  });
 });
 
 app.use(express.static(path.join(__dirname, "public")));
@@ -536,7 +623,6 @@ app.post(
     const installFile = req.files?.installFile?.[0];
     const inAppFile = req.files?.inAppFile?.[0];
     const cleanupTargets = [];
-    let didAttachCleanup = false;
 
     try {
       const appName = sanitizeFilePart(req.body.appName);
@@ -561,8 +647,8 @@ app.post(
 
       const store = createCampaignWorkbookStore(outputDirectory, appName);
 
-      await processInputFile(installFile, "install", store);
-      await processInputFile(inAppFile, "inapp", store);
+      const installSummary = await processInputFile(installFile, "install", store);
+      const inAppSummary = await processInputFile(inAppFile, "inapp", store);
 
       const generatedFiles = await store.finalize();
 
@@ -572,32 +658,43 @@ app.post(
         );
       }
 
-      res.setHeader("Content-Type", "application/zip");
-      res.setHeader(
-        "Content-Disposition",
-        'attachment; filename="Campaign - p360.zip"',
+      const zipFilename = "Campaign - p360.zip";
+      const zipPath = path.join(outputDirectory, zipFilename);
+
+      await createZipFile(zipPath, generatedFiles);
+
+      const summaryRows = generatedFiles.map((file) => ({
+        fileName: file.filename.replace(/\.xlsx$/i, ""),
+        headerRows: 1,
+        installRows: file.installCount,
+        inAppRows: file.inAppCount,
+        totalRows: 1 + file.installCount + file.inAppCount,
+      }));
+      const totals = summaryRows.reduce(
+        (accumulator, row) => ({
+          headerRows: accumulator.headerRows + row.headerRows,
+          installRows: accumulator.installRows + row.installRows,
+          inAppRows: accumulator.inAppRows + row.inAppRows,
+          totalRows: accumulator.totalRows + row.totalRows,
+        }),
+        { headerRows: 0, installRows: 0, inAppRows: 0, totalRows: 0 },
+      );
+      const downloadToken = registerGeneratedDownload(
+        zipPath,
+        cleanupTargets,
+        zipFilename,
       );
 
-      const archive = archiver("zip", { zlib: { level: 0 } });
-      const cleanup = () => cleanupPaths(cleanupTargets);
-
-      if (!didAttachCleanup) {
-        didAttachCleanup = true;
-        res.on("finish", cleanup);
-        res.on("close", cleanup);
-      }
-
-      archive.on("error", (error) => {
-        res.destroy(error);
+      return res.json({
+        zipFilename,
+        downloadUrl: `/api/download/${downloadToken}`,
+        inputTotals: {
+          installRows: installSummary.dataRowCount,
+          inAppRows: inAppSummary.dataRowCount,
+        },
+        outputTotals: totals,
+        rows: summaryRows,
       });
-
-      archive.pipe(res);
-
-      for (const file of generatedFiles) {
-        archive.file(file.fullPath, { name: file.filename });
-      }
-
-      await archive.finalize();
     } catch (error) {
       await cleanupPaths(cleanupTargets);
 
@@ -771,6 +868,26 @@ app.post(
     }
   },
 );
+
+app.use((error, req, res, next) => {
+  if (error instanceof multer.MulterError) {
+    if (error.code === "LIMIT_FILE_SIZE") {
+      return res.status(413).json({
+        error: "Upload too large. Each file can be up to 1.5 GB.",
+      });
+    }
+
+    return res.status(400).json({ error: error.message });
+  }
+
+  if (error) {
+    return res
+      .status(500)
+      .json({ error: error.message || "Something went wrong." });
+  }
+
+  return next();
+});
 
 if (require.main === module) {
   app.listen(port, () => {

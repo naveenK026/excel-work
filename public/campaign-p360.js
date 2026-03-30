@@ -1,10 +1,63 @@
 const form = document.getElementById("generator-form");
 const statusBox = document.getElementById("status");
 const submitButton = document.getElementById("submitButton");
+const summarySection = document.getElementById("summarySection");
+const summaryTableBody = document.getElementById("summaryTableBody");
+const installInputTotal = document.getElementById("installInputTotal");
+const inAppInputTotal = document.getElementById("inAppInputTotal");
+const installOutputTotal = document.getElementById("installOutputTotal");
+const inAppOutputTotal = document.getElementById("inAppOutputTotal");
+const headerTotalCell = document.getElementById("headerTotalCell");
+const installTotalCell = document.getElementById("installTotalCell");
+const inAppTotalCell = document.getElementById("inAppTotalCell");
+const grandTotalCell = document.getElementById("grandTotalCell");
+const downloadNote = document.getElementById("downloadNote");
 
 function setStatus(message, tone = "info") {
   statusBox.textContent = message;
   statusBox.dataset.tone = tone;
+}
+
+async function readErrorMessage(response, fallbackMessage) {
+  const text = await response.text();
+
+  if (!text) {
+    return fallbackMessage;
+  }
+
+  try {
+    const payload = JSON.parse(text);
+    return payload.error || payload.message || fallbackMessage;
+  } catch {
+    return text;
+  }
+}
+
+function renderSummary(payload) {
+  summaryTableBody.innerHTML = "";
+
+  for (const row of payload.rows) {
+    const tableRow = document.createElement("tr");
+    tableRow.innerHTML = `
+      <td>${row.fileName}</td>
+      <td>${row.headerRows}</td>
+      <td>${row.installRows}</td>
+      <td>${row.inAppRows}</td>
+      <td>${row.totalRows}</td>
+    `;
+    summaryTableBody.appendChild(tableRow);
+  }
+
+  installInputTotal.textContent = payload.inputTotals.installRows;
+  inAppInputTotal.textContent = payload.inputTotals.inAppRows;
+  installOutputTotal.textContent = payload.outputTotals.installRows;
+  inAppOutputTotal.textContent = payload.outputTotals.inAppRows;
+  headerTotalCell.textContent = payload.outputTotals.headerRows;
+  installTotalCell.textContent = payload.outputTotals.installRows;
+  inAppTotalCell.textContent = payload.outputTotals.inAppRows;
+  grandTotalCell.textContent = payload.outputTotals.totalRows;
+  downloadNote.textContent = `${payload.zipFilename} is ready and downloading automatically.`;
+  summarySection.hidden = false;
 }
 
 form.addEventListener("submit", async (event) => {
@@ -21,31 +74,25 @@ form.addEventListener("submit", async (event) => {
     });
 
     if (!response.ok) {
-      let errorMessage = "Unable to generate the ZIP file.";
-
-      try {
-        const payload = await response.json();
-        errorMessage = payload.error || errorMessage;
-      } catch (error) {
-        errorMessage = error.message || errorMessage;
-      }
+      const errorMessage = await readErrorMessage(
+        response,
+        "Unable to generate the ZIP file.",
+      );
 
       throw new Error(errorMessage);
     }
 
-    const blob = await response.blob();
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
+    const payload = await response.json();
+    renderSummary(payload);
 
-    link.href = url;
-    link.download = "Campaign - p360.zip";
+    const link = document.createElement("a");
+    link.href = payload.downloadUrl;
     document.body.appendChild(link);
     link.click();
     link.remove();
-    URL.revokeObjectURL(url);
 
     setStatus(
-      "ZIP generated successfully. Your download should start automatically.",
+      "ZIP generated successfully. Summary table is ready below.",
       "success",
     );
   } catch (error) {
