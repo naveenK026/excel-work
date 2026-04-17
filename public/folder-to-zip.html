@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Folder to ZIP</title>
+    <link rel="stylesheet" href="/styles.css" />
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+  </head>
+  <body>
+    <main class="page">
+      <a class="back-link" href="/">Back to 1.orbit</a>
+
+      <section class="hero">
+        <p class="eyebrow">Folder to ZIP</p>
+        <h1>Turn any folder into a ZIP instantly.</h1>
+        <p class="intro">
+          Select a folder and download it as a ZIP file, named after the folder itself.
+        </p>
+      </section>
+
+      <section class="card">
+        <form id="zip-form" class="form">
+          <label class="field">
+            <span>Select Folder</span>
+            <input id="folderInput" type="file" webkitdirectory directory multiple required />
+          </label>
+          <button id="submitButton" type="submit">Download ZIP</button>
+        </form>
+        <div id="status" class="status" aria-live="polite">
+          Your folder will be zipped and downloaded in your browser.
+        </div>
+      </section>
+    </main>
+
+    <script src="/folder-to-zip.js"></script>
+  </body>
+</html>

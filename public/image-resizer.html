@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Image Resizer</title>
+    <link rel="stylesheet" href="/styles.css" />
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+  </head>
+  <body>
+    <main class="page">
+      <a class="back-link" href="/">Back to 1.orbit</a>
+
+      <section class="hero">
+        <p class="eyebrow">Image Resizer</p>
+        <h1>Resize creatives to all required dimensions.</h1>
+        <p class="intro">
+          Select a folder containing your creative subfolders. Each image inside will be exported
+          in all three required sizes and formats automatically.
+        </p>
+      </section>
+
+      <section class="card">
+        <form id="resizer-form" class="form">
+          <label class="field">
+            <span>Select Creatives Folder</span>
+            <input id="folderInput" name="folderInput" type="file" webkitdirectory directory multiple required />
+            <small class="field-hint">
+              Choose the parent folder that contains your creative subfolders with images.
+            </small>
+          </label>
+
+          <button id="submitButton" type="submit">Resize &amp; Download</button>
+        </form>
+
+        <div id="status" class="status" aria-live="polite">
+          Each image will be exported as three variants: 1376×512 PNG, 5120×1280 JPG, and 260×130 JPG.
+        </div>
+      </section>
+
+      <section id="summarySection" class="card summary-card" hidden>
+        <p class="eyebrow">Output Summary</p>
+        <h2 style="margin:0 0 16px">Files generated per creative</h2>
+        <div id="summaryBody"></div>
+      </section>
+    </main>
+
+    <script src="/image-resizer.js"></script>
+  </body>
+</html>

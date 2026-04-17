@@ -10,6 +10,8 @@ const csvParser = require("csv-parser");
 const ExcelJS = require("exceljs");
 const XLSX = require("xlsx");
 const XlsxStreamReader = require("xlsx-stream-reader");
+const sharp = require("sharp");
+const unzipper = require("unzipper");
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -553,6 +555,14 @@ app.get("/appsflyer-highlight", (req, res) => {
   res.sendFile(path.join(__dirname, "public", "appsflyer-highlight.html"));
 });
 
+app.get("/image-resizer", (req, res) => {
+  res.sendFile(path.join(__dirname, "public", "image-resizer.html"));
+});
+
+app.get("/folder-to-zip", (req, res) => {
+  res.sendFile(path.join(__dirname, "public", "folder-to-zip.html"));
+});
+
 app.get("/api/download/:token", async (req, res) => {
   const { token } = req.params;
   const download = generatedDownloads.get(token);
@@ -858,6 +868,135 @@ app.post(
 
       res.download(outputPath, outputFilename, async () => {
         await cleanupPaths(cleanupTargets);
+      });
+    } catch (error) {
+      await cleanupPaths(cleanupTargets);
+
+      if (!res.headersSent) {
+        res.status(500).json({ error: error.message || "Something went wrong." });
+      }
+    }
+  },
+);
+
+const RESIZE_TARGETS = [
+  { width: 1376, height: 512,  format: "png",  maxBytes: 500 * 1024 },
+  { width: 5120, height: 1280, format: "jpeg", maxBytes: 500 * 1024 },
+  { width: 260,  height: 130,  format: "jpeg", maxBytes: 1024 * 1024 },
+];
+
+const IMAGE_EXTENSIONS = new Set([".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp", ".tiff"]);
+
+async function resizeToTarget(inputBuffer, target) {
+  const { width, height, format, maxBytes } = target;
+  let quality = 90;
+
+  // eslint-disable-next-line no-constant-condition
+  while (true) {
+    const options = format === "png" ? { compressionLevel: 9 } : { quality };
+    const buf = await sharp(inputBuffer)
+      .resize(width, height, { fit: "fill" })
+      .toFormat(format, options)
+      .toBuffer();
+
+    if (buf.length <= maxBytes || quality <= 10) {
+      return buf;
+    }
+
+    quality -= 10;
+  }
+}
+
+app.post(
+  "/api/resize-images",
+  upload.single("zipFile"),
+  async (req, res) => {
+    const zipFile = req.file;
+    const cleanupTargets = [];
+
+    try {
+      if (!zipFile) {
+        return res.status(400).json({ error: "A ZIP file is required." });
+      }
+
+      cleanupTargets.push(zipFile.path);
+
+      const outputDirectory = await fsp.mkdtemp(path.join(os.tmpdir(), "image-resizer-"));
+      cleanupTargets.push(outputDirectory);
+
+      const zip = fs.createReadStream(zipFile.path).pipe(unzipper.Parse({ forceStream: true }));
+      const tasks = [];
+      const imageCounters = new Map();
+      let rootFolderName = sanitizeFilePart(req.body.folderName || "resized-creatives") || "resized-creatives";
+
+      for await (const entry of zip) {
+        const entryPath = entry.path;
+        const ext = path.extname(entryPath).toLowerCase();
+
+        if (entry.type !== "File" || !IMAGE_EXTENSIONS.has(ext)) {
+          entry.autodrain();
+          continue;
+        }
+
+        const parts = entryPath.split("/").filter(Boolean);
+        const folderName = parts.length > 1 ? parts[parts.length - 2] : "root";
+        const inputBuffer = await entry.buffer();
+
+        if (!imageCounters.has(folderName)) imageCounters.set(folderName, 0);
+        imageCounters.set(folderName, imageCounters.get(folderName) + 1);
+        const imgIndex = imageCounters.get(folderName);
+
+        for (const target of RESIZE_TARGETS) {
+          const outExt = target.format === "jpeg" ? ".jpg" : ".png";
+          const outName = `${folderName}-img${imgIndex}-${target.width}x${target.height}${outExt}`;
+          const outFolder = path.join(outputDirectory, folderName);
+          const outPath = path.join(outFolder, outName);
+
+          tasks.push(
+            fsp.mkdir(outFolder, { recursive: true })
+              .then(() => resizeToTarget(inputBuffer, target))
+              .then((buf) => fsp.writeFile(outPath, buf))
+              .then(() => ({ folder: folderName, file: outName, outPath }))
+          );
+        }
+      }
+
+      const results = await Promise.all(tasks);
+
+      if (results.length === 0) {
+        throw new Error("No image files found in the ZIP.");
+      }
+
+      const zipFilename = `${rootFolderName}.zip`;
+      const zipPath = path.join(outputDirectory, zipFilename);
+
+      await new Promise((resolve, reject) => {
+        const output = fs.createWriteStream(zipPath);
+        const archive = archiver("zip", { zlib: { level: 0 } });
+        output.on("close", resolve);
+        output.on("error", reject);
+        archive.on("error", reject);
+        archive.pipe(output);
+
+        for (const { folder, file, outPath } of results) {
+          archive.file(outPath, { name: `${folder}/${file}` });
+        }
+
+        archive.finalize();
+      });
+
+      const token = registerGeneratedDownload(zipPath, cleanupTargets, zipFilename);
+
+      const summary = {};
+      for (const { folder, file } of results) {
+        if (!summary[folder]) summary[folder] = [];
+        summary[folder].push(file);
+      }
+
+      return res.json({
+        downloadUrl: `/api/download/${token}`,
+        zipFilename,
+        summary,
       });
     } catch (error) {
       await cleanupPaths(cleanupTargets);
